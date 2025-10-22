@@ -93,6 +93,7 @@
         let myChart; // Chart.js 인스턴스를 저장할 전역 변수
         const CSV_URL = 'data.csv'; // GitHub Pages에서 읽어올 파일명
         const UPDATE_INTERVAL_MS = 5 * 60 * 1000; // 5분
+        const TWELVE_HOURS_IN_MS = 12 * 60 * 60 * 1000; // 12시간을 밀리초로 정의
         
         /**
          * CSV 텍스트를 Chart.js 데이터 형식으로 파싱합니다.
@@ -283,9 +284,24 @@
                 }
             };
 
+            // --- [새로운 기능] 초기 12시간 뷰 설정 ---
+            if (dataPoints.length > 0) {
+                const latestTime = dataPoints[dataPoints.length - 1].x; // 가장 최신 타임스탬프 (밀리초)
+                const startTime = latestTime - TWELVE_HOURS_IN_MS; // 12시간 전 시간 계산
+
+                // X축 초기 범위 설정
+                config.options.scales.x.min = startTime;
+                config.options.scales.x.max = latestTime;
+            }
+            // --- [새로운 기능] 끝 ---
+
             if (myChart) {
                 // 기존 차트 업데이트
                 myChart.data.datasets[0].data = dataPoints;
+                // 기존 차트의 옵션에도 12시간 범위 적용 (업데이트 시 리셋되지 않도록)
+                myChart.options.scales.x.min = config.options.scales.x.min;
+                myChart.options.scales.x.max = config.options.scales.x.max;
+                
                 myChart.update();
                 autoAdjustYScale({ chart: myChart });
             } else {
@@ -301,7 +317,9 @@
          */
         function resetZoom() {
             if (myChart && myChart.resetZoom) {
+                // resetZoom()은 X축을 전체 데이터 범위로 되돌립니다.
                 myChart.resetZoom();
+                
                 // 줌 리셋 후 Y축도 초기 전체 데이터 범위로 재조정
                 myChart.scales.y.min = undefined;
                 myChart.scales.y.max = undefined;
