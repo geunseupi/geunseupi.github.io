@@ -110,6 +110,7 @@
             const valueIndex = header.indexOf('value');
 
             if (timeIndex === -1 || valueIndex === -1) {
+                // 임의 데이터 생성 로직을 제거했으므로, 오류를 발생시킵니다.
                 throw new Error("CSV 헤더에 'timestamp' 또는 'value'가 포함되어야 합니다.");
             }
 
@@ -117,7 +118,8 @@
                 const cols = rows[i].split(',').map(c => c.trim());
                 
                 if (cols.length > Math.max(timeIndex, valueIndex)) {
-                    const timestamp = new Date(cols[timeIndex]);
+                    // X축은 밀리초 숫자로 처리하여 성능을 높입니다.
+                    const timestamp = new Date(cols[timeIndex]); 
                     const value = parseFloat(cols[valueIndex]);
 
                     // 유효한 데이터만 추가
@@ -148,7 +150,8 @@
                 // 캐시 문제 해결을 위해 쿼리 파라미터에 현재 시간을 추가합니다.
                 const urlWithCacheBuster = `${CSV_URL}?v=${Date.now()}`;
                 
-                const response = await fetch(urlWithCacheBuster, { cache: "no-store" });
+                // cache: "no-store"를 사용하여 브라우저 캐시를 무시하고 최신 파일을 가져옵니다.
+                const response = await fetch(urlWithCacheBuster, { cache: "no-store" }); 
                 
                 if (!response.ok) {
                     throw new Error(`HTTP 오류: ${response.status} (${response.statusText}). GitHub에 ${CSV_URL} 파일이 올바르게 커밋되었는지 확인하세요.`);
@@ -163,7 +166,11 @@
 
                 updateChart(dataPoints);
                 
-                lastUpdatedElement.textContent = `✅ 마지막 업데이트: ${new Date().toLocaleTimeString('ko-KR')}`;
+                // --- 수정된 부분: 마지막 데이터 포인트 시간으로 업데이트 ---
+                const latestDataPoint = dataPoints[dataPoints.length - 1];
+                const latestTime = new Date(latestDataPoint.x);
+                lastUpdatedElement.textContent = `✅ 마지막 데이터 기록 시간: ${latestTime.toLocaleString('ko-KR')}`;
+                // --------------------------------------------------------
                 
             } catch (error) {
                 console.error("데이터 로드 및 파싱 실패:", error);
@@ -220,6 +227,10 @@
          */
         function updateChart(dataPoints) {
             const ctx = document.getElementById('timeSeriesChart').getContext('2d');
+            
+            // 1. 전체 데이터 범위 계산 (Limits 및 Reset 기준 설정용)
+            const fullMinTime = dataPoints.length > 0 ? dataPoints[0].x : undefined;
+            const fullMaxTime = dataPoints.length > 0 ? dataPoints[dataPoints.length - 1].x : undefined;
             
             const data = {
                 datasets: [{
@@ -278,34 +289,44 @@
                                 modifierKey: null, // Shift 키 없이 드래그 Pan
                                 onPanComplete: autoAdjustYScale, 
                             },
-                            limits: { x: { min: 'original', max: 'original' } } 
+                            // Zoom Limits는 항상 전체 데이터 범위를 사용합니다.
+                            limits: { 
+                                x: { 
+                                    min: fullMinTime,
+                                    max: fullMaxTime
+                                } 
+                            } 
                         }
                     }
                 }
             };
 
-            // --- [새로운 기능] 초기 12시간 뷰 설정 ---
-            if (dataPoints.length > 0) {
-                const latestTime = dataPoints[dataPoints.length - 1].x; // 가장 최신 타임스탬프 (밀리초)
-                const startTime = latestTime - TWELVE_HOURS_IN_MS; // 12시간 전 시간 계산
-
-                // X축 초기 범위 설정
-                config.options.scales.x.min = startTime;
-                config.options.scales.x.max = latestTime;
-            }
-            // --- [새로운 기능] 끝 ---
-
             if (myChart) {
-                // 기존 차트 업데이트
+                // ----------------- 기존 차트 업데이트 (줌 상태 유지) -----------------
+                // 데이터 포인트만 업데이트
                 myChart.data.datasets[0].data = dataPoints;
-                // 기존 차트의 옵션에도 12시간 범위 적용 (업데이트 시 리셋되지 않도록)
-                myChart.options.scales.x.min = config.options.scales.x.min;
-                myChart.options.scales.x.max = config.options.scales.x.max;
+                
+                // Limits는 전체 데이터 범위로 확장 (데이터가 추가되었을 경우)
+                myChart.options.plugins.zoom.limits.x.min = fullMinTime;
+                myChart.options.plugins.zoom.limits.x.max = fullMaxTime;
+
+                // X축 최소/최대값은 건드리지 않고 사용자가 설정한 줌 상태를 유지합니다.
                 
                 myChart.update();
+                // Y축만 현재 보이는 X축 범위에 맞춰 조정
                 autoAdjustYScale({ chart: myChart });
+                
             } else {
-                // 새 차트 생성
+                // ----------------- 새 차트 생성 (최초 12시간 줌 적용) -----------------
+                if (dataPoints.length > 0) {
+                    const latestTime = dataPoints[dataPoints.length - 1].x; // 가장 최신 타임스탬프 (밀리초)
+                    const startTime = latestTime - TWELVE_HOURS_IN_MS; // 12시간 전 시간 계산
+
+                    // X축 초기 범위 설정: 12시간 뷰로 시작
+                    config.options.scales.x.min = startTime;
+                    config.options.scales.x.max = latestTime;
+                }
+                
                 myChart = new Chart(ctx, config);
                 autoAdjustYScale({ chart: myChart });
             }
@@ -313,17 +334,22 @@
         }
 
         /**
-         * 줌 및 팬 상태를 초기화합니다.
+         * 줌 및 팬 상태를 초기화합니다. (전체 데이터 범위로 돌아감)
          */
         function resetZoom() {
             if (myChart && myChart.resetZoom) {
-                // resetZoom()은 X축을 전체 데이터 범위로 되돌립니다.
+                // resetZoom()은 limits에 설정된 전체 데이터 범위로 돌아갑니다.
                 myChart.resetZoom();
                 
-                // 줌 리셋 후 Y축도 초기 전체 데이터 범위로 재조정
+                // Y축도 초기 전체 데이터 범위로 재조정
                 myChart.scales.y.min = undefined;
                 myChart.scales.y.max = undefined;
+                
+                // 줌 리셋 후 자동 Y축 스케일링을 다시 실행합니다.
+                // resetZoom() 호출 후 약간의 딜레이가 필요할 수 있으나,
+                // Chart.js 줌 플러그인이 이를 비동기적으로 처리하므로, update('none') 후 다시 호출합니다.
                 myChart.update('none');
+                autoAdjustYScale({ chart: myChart });
             }
         }
 
