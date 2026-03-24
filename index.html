@@ -75,28 +75,29 @@
             근스피
         </h1>
 
-        <!-- 차트 컨트롤 -->
-        <div class="bg-white p-6 rounded-xl shadow-lg border border-gray-200">
-             <div class="flex flex-col sm:flex-row justify-center">
-                <button onclick="resetZoom()" id="resetButton" class="w-full sm:w-1/2 bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg transition duration-200 ease-in-out shadow-md hover:shadow-lg">
-                    🔄 차트 초기화 (Zoom/Pan 리셋)
-                </button>
-            </div>
-            <p id="statusMessage" class="mt-4 text-sm text-red-500 font-medium hidden text-center"></p>
-        </div>
+        <p class="text-sm text-orange-500 font-medium text-center hidden" id="frozenInfo"></p>
+        <p class="font-bold text-center hidden" id="dropInfo"></p>
+        <p id="statusMessage" class="text-sm text-red-500 font-medium hidden text-center"></p>
 
-        <!-- 차트 캔버스 (높이 조정됨) -->
-        <div class="chart-canvas h-[500px] md:max-h-[70vh] relative">
+        <!-- 차트 캔버스 -->
+        <div class="chart-canvas h-[500px] relative">
             <div id="loadingIndicator" class="flex items-center justify-center text-lg font-medium text-gray-700">
                 CSV 데이터를 불러오는 중...
             </div>
-            
+
             <canvas id="timeSeriesChart" class="flex-1"></canvas>
         </div>
 
         <p class="text-sm text-gray-500 mt-4 text-center" id="lastUpdated">
             데이터 로드 대기 중...
         </p>
+
+        <!-- 차트 컨트롤 -->
+        <div class="flex justify-center">
+            <button onclick="resetZoom()" id="resetButton" class="w-full sm:w-1/2 bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg transition duration-200 ease-in-out shadow-md hover:shadow-lg">
+                🔄 차트 초기화 (Zoom/Pan 리셋)
+            </button>
+        </div>
     </div>
 
     <script>
@@ -175,13 +176,83 @@
                 }
 
                 updateChart(dataPoints);
-                
-                // --- 수정된 부분: 마지막 데이터 포인트 시간으로 업데이트 ---
+
                 const latestDataPoint = dataPoints[dataPoints.length - 1];
                 const latestTime = new Date(latestDataPoint.x);
                 lastUpdatedElement.textContent = `✅ 마지막 데이터 기록 시간: ${latestTime.toLocaleString('ko-KR')}`;
-                // --------------------------------------------------------
-                
+
+                // 데이터 동결 시간 표시
+                const frozenInfo = document.getElementById('frozenInfo');
+                const lastValue = latestDataPoint.y;
+                let frozenSince = latestDataPoint.x;
+                for (let i = dataPoints.length - 2; i >= 0; i--) {
+                    if (dataPoints[i].y !== lastValue) break;
+                    frozenSince = dataPoints[i].x;
+                }
+                const frozenMs = latestDataPoint.x - frozenSince;
+                if (frozenMs >= 10 * 60 * 1000) {
+                    const days = Math.floor(frozenMs / (24 * 60 * 60 * 1000));
+                    const hours = Math.floor((frozenMs % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000));
+                    const mins = Math.floor((frozenMs % (60 * 60 * 1000)) / (60 * 1000));
+                    let durationText = '';
+                    if (days > 0) durationText += `${days}일 `;
+                    if (hours > 0) durationText += `${hours}시간 `;
+                    if (mins > 0) durationText += `${mins}분`;
+                    frozenInfo.textContent = `🫀 ${durationText}째 심정지 중!`;
+                    frozenInfo.classList.remove('hidden');
+                } else {
+                    frozenInfo.classList.add('hidden');
+                }
+
+                // 최근 급락 구간 감지
+                const dropInfo = document.getElementById('dropInfo');
+                const THIRTY_MIN = 30 * 60 * 1000;
+                let segments = [];
+                let seg = null;
+
+                for (let i = 1; i < dataPoints.length; i++) {
+                    const prev = dataPoints[i - 1];
+                    const curr = dataPoints[i];
+                    if (curr.y < prev.y) {
+                        if (!seg) {
+                            seg = { startTime: prev.x, endTime: curr.x, peak: prev.y, low: curr.y, lastDropTime: curr.x };
+                        } else if (curr.x - seg.lastDropTime <= THIRTY_MIN) {
+                            seg.endTime = curr.x;
+                            seg.peak = Math.max(seg.peak, prev.y);
+                            seg.low = Math.min(seg.low, curr.y);
+                            seg.lastDropTime = curr.x;
+                        } else {
+                            segments.push(seg);
+                            seg = { startTime: prev.x, endTime: curr.x, peak: prev.y, low: curr.y, lastDropTime: curr.x };
+                        }
+                    } else if (seg && curr.x - seg.lastDropTime > THIRTY_MIN) {
+                        segments.push(seg);
+                        seg = null;
+                    }
+                }
+                if (seg) segments.push(seg);
+
+                const twentyFourHoursAgo = Date.now() - 24 * 60 * 60 * 1000;
+                const bigDrops = segments.filter(s => s.peak - s.low >= 5 && s.startTime >= twentyFourHoursAgo);
+                if (bigDrops.length > 0) {
+                    const recent = bigDrops[bigDrops.length - 1];
+                    const dropAmount = Math.round(recent.peak - recent.low);
+                    const dropTime = new Date(recent.startTime).toLocaleString('ko-KR');
+                    let label;
+                    if (dropAmount >= 100) label = '🚨 어디가노 게이야!!!!';
+                    else if (dropAmount >= 50) label = '🚨 비상!!!!!!';
+                    else if (dropAmount >= 20) label = '📉 떡락!!!';
+                    else label = '📉 소폭 하락';
+                    dropInfo.textContent = `${label} — ${dropTime}에 ${dropAmount}개 하락 (${Math.round(recent.peak)} → ${Math.round(recent.low)})`;
+                    if (dropAmount >= 100) { dropInfo.style.color = '#991b1b'; dropInfo.style.fontSize = '1.5rem'; }
+                    else if (dropAmount >= 50) { dropInfo.style.color = '#dc2626'; dropInfo.style.fontSize = '1.25rem'; }
+                    else if (dropAmount >= 20) { dropInfo.style.color = '#ef4444'; dropInfo.style.fontSize = '1.1rem'; }
+                    else { dropInfo.style.color = '#f87171'; dropInfo.style.fontSize = '0.9rem'; }
+                    dropInfo.classList.remove('hidden');
+                } else {
+                    dropInfo.classList.add('hidden');
+                }
+
             } catch (error) {
                 console.error("데이터 로드 및 파싱 실패:", error);
                 statusMessage.textContent = `🚨 데이터 로드 오류: ${error.message}`;
@@ -215,9 +286,9 @@
                 const minY = Math.min(...yValues);
                 const maxY = Math.max(...yValues);
 
-                const padding = (maxY - minY) * 0.05;
-                const newMinY = minY - padding;
-                const newMaxY = maxY + padding;
+                const padding = Math.max((maxY - minY) * 0.1, 5);
+                const newMinY = Math.floor(minY - padding);
+                const newMaxY = Math.ceil(maxY + padding);
 
                 const yScale = chart.scales.y;
                 
@@ -277,7 +348,15 @@
                         y: {
                             beginAtZero: false,
                             title: { display: true, text: '값 (Value)', color: '#4b5563' },
-                            grid: { color: 'rgba(0, 0, 0, 0.05)' }
+                            grid: { color: 'rgba(0, 0, 0, 0.05)' },
+                            ticks: {
+                                callback: v => Math.round(v)
+                            },
+                            afterFit: scale => {
+                                const range = scale.max - scale.min;
+                                if (range <= 20) scale.options.ticks.stepSize = 1;
+                                else delete scale.options.ticks.stepSize;
+                            }
                         }
                     },
                     plugins: {
