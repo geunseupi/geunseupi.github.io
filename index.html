@@ -98,10 +98,17 @@
                 🔄 차트 초기화 (Zoom/Pan 리셋)
             </button>
         </div>
+        <div class="flex justify-center">
+            <button onclick="toggleNoDrop()" id="noDropButton" class="text-xs text-gray-400 hover:text-gray-600 underline">
+                글삭이 없었더라면?
+            </button>
+        </div>
     </div>
 
     <script>
-        let myChart; // Chart.js 인스턴스를 저장할 전역 변수
+        let myChart;
+        let originalData = [];
+        let noDropMode = false;
         const CSV_URL = 'https://raw.githubusercontent.com/geunseupi/geunseupi--data/main/data.csv';
         const UPDATE_INTERVAL_MS = 5 * 60 * 1000; // 5분
         const TWELVE_HOURS_IN_MS = 12 * 60 * 60 * 1000; // 12시간을 밀리초로 정의
@@ -175,7 +182,8 @@
                      throw new Error("CSV 파일을 읽었으나 유효한 데이터 포인트가 없습니다. 헤더와 데이터 형식을 확인하세요.");
                 }
 
-                updateChart(dataPoints);
+                originalData = dataPoints;
+                updateChart(noDropMode ? buildNoDropData(dataPoints) : dataPoints);
 
                 const latestDataPoint = dataPoints[dataPoints.length - 1];
                 const latestTime = new Date(latestDataPoint.x);
@@ -290,15 +298,18 @@
                 const newMinY = Math.floor(minY - padding);
                 const newMaxY = Math.ceil(maxY + padding);
 
-                const yScale = chart.scales.y;
-                
-                yScale.min = newMinY < 0 ? 0 : newMinY;
-                yScale.max = newMaxY;
-                
-                chart.update('none'); 
+                const yOpts = chart.options.scales.y;
+                yOpts.min = newMinY < 0 ? 0 : newMinY;
+                yOpts.max = newMaxY;
+
+                const range = newMaxY - (newMinY < 0 ? 0 : newMinY);
+                if (range <= 20) yOpts.ticks.stepSize = 1;
+                else delete yOpts.ticks.stepSize;
+
+                chart.update('none');
             } else {
-                 chart.scales.y.min = undefined;
-                 chart.scales.y.max = undefined;
+                 chart.options.scales.y.min = undefined;
+                 chart.options.scales.y.max = undefined;
                  chart.update('none');
             }
         };
@@ -315,7 +326,7 @@
             
             const data = {
                 datasets: [{
-                    label: '시계열 값 (Value)',
+                    label: '근스피',
                     data: dataPoints,
                     parsing: false,
                     borderColor: 'rgb(16, 185, 129)',
@@ -351,11 +362,6 @@
                             grid: { color: 'rgba(0, 0, 0, 0.05)' },
                             ticks: {
                                 callback: v => Math.round(v)
-                            },
-                            afterFit: scale => {
-                                const range = scale.max - scale.min;
-                                if (range <= 20) scale.options.ticks.stepSize = 1;
-                                else delete scale.options.ticks.stepSize;
                             }
                         }
                     },
@@ -445,6 +451,76 @@
                 // Chart.js 줌 플러그인이 이를 비동기적으로 처리하므로, update('none') 후 다시 호출합니다.
                 myChart.update('none');
                 autoAdjustYScale({ chart: myChart });
+            }
+        }
+
+        function buildNoDropData(data) {
+            if (data.length === 0) return [];
+            const result = [{ x: data[0].x, y: data[0].y }];
+            let offset = 0;
+            for (let i = 1; i < data.length; i++) {
+                const diff = data[i].y - data[i - 1].y;
+                if (diff < 0) offset -= diff;
+                result.push({ x: data[i].x, y: data[i].y + offset });
+            }
+            return result;
+        }
+
+        function toggleNoDrop() {
+            noDropMode = !noDropMode;
+            const btn = document.getElementById('noDropButton');
+            btn.textContent = noDropMode ? '현실로 돌아가기' : '글삭이 없었더라면?';
+            if (myChart && originalData.length > 0) {
+                const newData = noDropMode ? buildNoDropData(originalData) : originalData;
+                const oldData = myChart.data.datasets[0].data;
+
+                // 현재 Y축 범위 저장
+                const oldMin = myChart.options.scales.y.min;
+                const oldMax = myChart.options.scales.y.max;
+
+                // 새 Y축 범위 계산
+                const xMin = myChart.scales.x.min;
+                const xMax = myChart.scales.x.max;
+                let yVals = newData.filter(p => p.x >= xMin && p.x <= xMax).map(p => p.y);
+                if (yVals.length === 0) yVals = newData.map(p => p.y);
+                const minY = Math.min(...yVals);
+                const maxY = Math.max(...yVals);
+                const pad = Math.max((maxY - minY) * 0.1, 5);
+                const targetMin = Math.floor(minY - pad) < 0 ? 0 : Math.floor(minY - pad);
+                const targetMax = Math.ceil(maxY + pad);
+
+                // 보간용 스냅샷 (oldData와 newData의 y값을 x기준으로 매칭)
+                const oldMap = new Map(oldData.map(p => [p.x, p.y]));
+
+                const duration = 800;
+                const startTime = performance.now();
+                function easeInOutQuart(t) {
+                    return t < 0.5 ? 8 * t * t * t * t : 1 - Math.pow(-2 * t + 2, 4) / 2;
+                }
+                function animate(now) {
+                    const elapsed = now - startTime;
+                    const t = Math.min(elapsed / duration, 1);
+                    const e = easeInOutQuart(t);
+
+                    // 데이터 보간
+                    const interpolated = newData.map(p => {
+                        const oldY = oldMap.has(p.x) ? oldMap.get(p.x) : p.y;
+                        return { x: p.x, y: oldY + (p.y - oldY) * e };
+                    });
+                    myChart.data.datasets[0].data = interpolated;
+
+                    // Y축 보간
+                    myChart.options.scales.y.min = oldMin + (targetMin - oldMin) * e;
+                    myChart.options.scales.y.max = oldMax + (targetMax - oldMax) * e;
+
+                    myChart.update('none');
+                    if (t < 1) requestAnimationFrame(animate);
+                    else {
+                        myChart.data.datasets[0].data = newData;
+                        myChart.update('none');
+                    }
+                }
+                requestAnimationFrame(animate);
             }
         }
 
