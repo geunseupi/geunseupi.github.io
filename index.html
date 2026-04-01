@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="ko">
+<script>if(localStorage.getItem('darkMode')==='true')document.documentElement.classList.add('dark')</script>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -17,7 +18,8 @@
 
     <style>
         /* 폰트 설정 및 기본 스타일 */
-        body { font-family: 'Inter', sans-serif; background-color: #f4f7f9; transition: background-color 0.3s; }
+        body { font-family: 'Inter', sans-serif; background-color: #f4f7f9; }
+        body.transitioning, body.transitioning .chart-canvas { transition: background-color 0.3s; }
         .dark body { background-color: #111827; }
         #chartContainer { max-width: 1200px; margin: 0 auto; }
         /* 차트 캔버스 스타일 */
@@ -26,7 +28,6 @@
             border-radius: 1rem;
             padding: 1rem;
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
-            transition: background-color 0.3s;
             display: flex;
             flex-direction: column;
             user-select: none;
@@ -125,10 +126,12 @@
 
         function toggleDarkMode() {
             isDarkMode = !isDarkMode;
+            document.body.classList.add('transitioning');
             document.documentElement.classList.toggle('dark', isDarkMode);
             localStorage.setItem('darkMode', isDarkMode);
             document.getElementById('darkModeBtn').textContent = isDarkMode ? '☀️' : '🌙';
             applyChartTheme();
+            setTimeout(() => document.body.classList.remove('transitioning'), 300);
         }
 
         function getChartColors() {
