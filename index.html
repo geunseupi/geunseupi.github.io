@@ -76,6 +76,7 @@
         </h1>
 
         <p class="text-sm text-orange-500 font-medium text-center hidden" id="frozenInfo"></p>
+        <p class="text-sm text-gray-500 text-center hidden" id="totalDeletedInfo"></p>
         <p class="font-bold text-center hidden" id="dropInfo"></p>
         <p id="statusMessage" class="text-sm text-red-500 font-medium hidden text-center"></p>
 
@@ -93,12 +94,10 @@
         </p>
 
         <!-- 차트 컨트롤 -->
-        <div class="flex justify-center">
+        <div class="flex flex-wrap justify-center items-center gap-2">
             <button onclick="resetZoom()" id="resetButton" class="w-full sm:w-1/2 bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg transition duration-200 ease-in-out shadow-md hover:shadow-lg">
                 🔄 차트 초기화 (Zoom/Pan 리셋)
             </button>
-        </div>
-        <div class="flex justify-center">
             <button onclick="toggleNoDrop()" id="noDropButton" class="text-xs text-gray-400 hover:text-gray-600 underline">
                 글삭이 없었더라면?
             </button>
@@ -191,10 +190,10 @@
 
                 // 데이터 동결 시간 표시
                 const frozenInfo = document.getElementById('frozenInfo');
-                const lastValue = latestDataPoint.y;
                 let frozenSince = latestDataPoint.x;
                 for (let i = dataPoints.length - 2; i >= 0; i--) {
-                    if (dataPoints[i].y !== lastValue) break;
+                    // 값이 증가한 경우만 심정지 해제 (하락은 심정지 유지)
+                    if (dataPoints[i].y < dataPoints[i + 1].y) break;
                     frozenSince = dataPoints[i].x;
                 }
                 const frozenMs = latestDataPoint.x - frozenSince;
@@ -210,6 +209,20 @@
                     frozenInfo.classList.remove('hidden');
                 } else {
                     frozenInfo.classList.add('hidden');
+                }
+
+                // 총 삭제된 게시글 수 계산
+                const totalDeletedInfo = document.getElementById('totalDeletedInfo');
+                let totalDeleted = 0;
+                for (let i = 1; i < dataPoints.length; i++) {
+                    const diff = dataPoints[i].y - dataPoints[i - 1].y;
+                    if (diff < 0) totalDeleted += Math.abs(diff);
+                }
+                if (totalDeleted > 0) {
+                    totalDeletedInfo.textContent = `🗑️ 총 삭제된 게시글: ${Math.round(totalDeleted)}개`;
+                    totalDeletedInfo.classList.remove('hidden');
+                } else {
+                    totalDeletedInfo.classList.add('hidden');
                 }
 
                 // 최근 급락 구간 감지
