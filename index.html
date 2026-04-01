@@ -17,7 +17,8 @@
 
     <style>
         /* 폰트 설정 및 기본 스타일 */
-        body { font-family: 'Inter', sans-serif; background-color: #f4f7f9; }
+        body { font-family: 'Inter', sans-serif; background-color: #f4f7f9; transition: background-color 0.3s; }
+        .dark body { background-color: #111827; }
         #chartContainer { max-width: 1200px; margin: 0 auto; }
         /* 차트 캔버스 스타일 */
         .chart-canvas {
@@ -25,6 +26,7 @@
             border-radius: 1rem;
             padding: 1rem;
             box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -2px rgba(0, 0, 0, 0.1);
+            transition: background-color 0.3s;
             display: flex;
             flex-direction: column;
             user-select: none;
@@ -54,13 +56,16 @@
             z-index: 10;
             border-radius: 1rem;
         }
+        .dark .chart-canvas { background-color: #1f2937; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.3); }
+        .dark #loadingIndicator { background-color: rgba(31, 41, 55, 0.9); }
     </style>
     <script>
         tailwind.config = {
+            darkMode: 'class',
             theme: {
                 extend: {
                     colors: {
-                        'primary-blue': '#10b981', /* 에메랄드 그린 계열 */
+                        'primary-blue': '#10b981',
                         'primary-dark': '#0f766e',
                     }
                 }
@@ -68,37 +73,42 @@
         }
     </script>
 </head>
-<body class="p-4 md:p-8">
+<body class="p-4 md:p-8 dark:text-gray-200">
 
     <div id="chartContainer" class="space-y-6">
-        <h1 class="text-3xl font-bold text-gray-800 text-center">
-            근스피
-        </h1>
+        <div class="flex justify-center items-center gap-3">
+            <h1 class="text-3xl font-bold text-gray-800 dark:text-gray-100 text-center">
+                근스피
+            </h1>
+            <button onclick="toggleDarkMode()" id="darkModeBtn" class="text-xl" title="다크모드 토글">🌙</button>
+        </div>
 
         <p class="text-sm text-orange-500 font-medium text-center hidden" id="frozenInfo"></p>
-        <p class="text-sm text-gray-500 text-center hidden" id="totalDeletedInfo"></p>
+        <p class="text-sm text-gray-500 dark:text-gray-400 text-center hidden" id="totalDeletedInfo"></p>
         <p class="font-bold text-center hidden" id="dropInfo"></p>
         <p id="statusMessage" class="text-sm text-red-500 font-medium hidden text-center"></p>
 
         <!-- 차트 캔버스 -->
         <div class="chart-canvas h-[500px] relative">
-            <div id="loadingIndicator" class="flex items-center justify-center text-lg font-medium text-gray-700">
+            <div id="loadingIndicator" class="flex items-center justify-center text-lg font-medium text-gray-700 dark:text-gray-300">
                 CSV 데이터를 불러오는 중...
             </div>
 
             <canvas id="timeSeriesChart" class="flex-1"></canvas>
         </div>
 
-        <p class="text-sm text-gray-500 mt-4 text-center" id="lastUpdated">
+        <p class="text-sm text-gray-500 dark:text-gray-400 mt-4 text-center" id="lastUpdated">
             데이터 로드 대기 중...
         </p>
 
         <!-- 차트 컨트롤 -->
-        <div class="flex flex-wrap justify-center items-center gap-2">
-            <button onclick="resetZoom()" id="resetButton" class="w-full sm:w-1/2 bg-gray-500 hover:bg-gray-600 text-white font-bold py-2 px-4 rounded-lg transition duration-200 ease-in-out shadow-md hover:shadow-lg">
+        <div class="flex justify-center">
+            <button onclick="resetZoom()" id="resetButton" class="w-full sm:w-1/2 bg-gray-500 hover:bg-gray-600 dark:bg-gray-600 dark:hover:bg-gray-700 text-white font-bold py-2 px-4 rounded-lg transition duration-200 ease-in-out shadow-md hover:shadow-lg">
                 🔄 차트 초기화 (Zoom/Pan 리셋)
             </button>
-            <button onclick="toggleNoDrop()" id="noDropButton" class="text-xs text-gray-400 hover:text-gray-600 underline">
+        </div>
+        <div class="flex justify-center">
+            <button onclick="toggleNoDrop()" id="noDropButton" class="text-xs text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300 underline">
                 글삭이 없었더라면?
             </button>
         </div>
@@ -108,6 +118,37 @@
         let myChart;
         let originalData = [];
         let noDropMode = false;
+        let isDarkMode = localStorage.getItem('darkMode') === 'true';
+
+        // 페이지 로드 시 다크모드 즉시 적용 (깜빡임 방지)
+        if (isDarkMode) document.documentElement.classList.add('dark');
+
+        function toggleDarkMode() {
+            isDarkMode = !isDarkMode;
+            document.documentElement.classList.toggle('dark', isDarkMode);
+            localStorage.setItem('darkMode', isDarkMode);
+            document.getElementById('darkModeBtn').textContent = isDarkMode ? '☀️' : '🌙';
+            applyChartTheme();
+        }
+
+        function getChartColors() {
+            return isDarkMode
+                ? { text: '#d1d5db', grid: 'rgba(255,255,255,0.1)', tooltip: '#374151' }
+                : { text: '#4b5563', grid: 'rgba(0,0,0,0.05)', tooltip: '#fff' };
+        }
+
+        function applyChartTheme() {
+            if (!myChart) return;
+            const c = getChartColors();
+            myChart.options.scales.x.title.color = c.text;
+            myChart.options.scales.x.ticks.color = c.text;
+            myChart.options.scales.x.grid.color = c.grid;
+            myChart.options.scales.y.title.color = c.text;
+            myChart.options.scales.y.ticks.color = c.text;
+            myChart.options.scales.y.grid.color = c.grid;
+            myChart.options.plugins.legend.labels.color = c.text;
+            myChart.update('none');
+        }
         const CSV_URL = 'https://raw.githubusercontent.com/geunseupi/geunseupi--data/main/data.csv';
         const UPDATE_INTERVAL_MS = 5 * 60 * 1000; // 5분
         const TWELVE_HOURS_IN_MS = 12 * 60 * 60 * 1000; // 12시간을 밀리초로 정의
@@ -197,7 +238,7 @@
                     frozenSince = dataPoints[i].x;
                 }
                 const frozenMs = latestDataPoint.x - frozenSince;
-                if (frozenMs >= 10 * 60 * 1000) {
+                if (frozenMs >= 60 * 60 * 1000) {
                     const days = Math.floor(frozenMs / (24 * 60 * 60 * 1000));
                     const hours = Math.floor((frozenMs % (24 * 60 * 60 * 1000)) / (60 * 60 * 1000));
                     const mins = Math.floor((frozenMs % (60 * 60 * 1000)) / (60 * 1000));
@@ -352,13 +393,14 @@
                 }]
             };
 
+            const c = getChartColors();
             const config = {
                 type: 'line',
                 data: data,
                 options: {
                     responsive: true,
-                    maintainAspectRatio: false, 
-                    animation: false, 
+                    maintainAspectRatio: false,
+                    animation: false,
                     scales: {
                         x: {
                             type: 'time',
@@ -366,16 +408,18 @@
                                 unit: 'day',
                                 tooltipFormat: 'yyyy-MM-dd HH:mm:ss'
                             },
-                            title: { display: true, text: '시간 (Timestamp)', color: '#4b5563' },
-                            grid: { color: 'rgba(0, 0, 0, 0.05)' }
+                            title: { display: true, text: '시간 (Timestamp)', color: c.text },
+                            ticks: { color: c.text },
+                            grid: { color: c.grid }
                         },
                         y: {
                             beginAtZero: false,
-                            title: { display: true, text: '값 (Value)', color: '#4b5563' },
-                            grid: { color: 'rgba(0, 0, 0, 0.05)' },
+                            title: { display: false },
                             ticks: {
+                                color: c.text,
                                 callback: v => Math.round(v)
-                            }
+                            },
+                            grid: { color: c.grid }
                         }
                     },
                     plugins: {
@@ -384,7 +428,7 @@
                             algorithm: 'lttb',
                             samples: 500
                         },
-                        legend: { display: true, position: 'top' },
+                        legend: { display: true, position: 'top', labels: { color: c.text } },
                         tooltip: { mode: 'index', intersect: false },
                         zoom: {
                             zoom: {
@@ -539,8 +583,8 @@
 
         // 초기 로드 시 차트 렌더링 및 5분마다 업데이트 설정.
         window.onload = () => {
+             document.getElementById('darkModeBtn').textContent = isDarkMode ? '☀️' : '🌙';
              fetchData();
-             // 5분마다 데이터 새로고침
              setInterval(fetchData, UPDATE_INTERVAL_MS);
         };
 
