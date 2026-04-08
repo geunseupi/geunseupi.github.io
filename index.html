@@ -196,7 +196,7 @@
                             if (!isNaN(rank) && rank >= 1 && rank <= 20) {
                                 rankData.push({ x: t, y: rank });
                             } else {
-                                rankData.push({ x: t, y: null });
+                                rankData.push({ x: t, y: 21 });
                             }
                         }
                     }
@@ -424,7 +424,7 @@
                     pointHoverRadius: 5,
                     tension: 0.3,
                     fill: false,
-                    spanGaps: false,
+                    spanGaps: true,
                     borderDash: [4, 4]
                 }]
             };
@@ -485,7 +485,7 @@
                             callbacks: {
                                 label: function(context) {
                                     if (context.dataset.yAxisID === 'yRank') {
-                                        return context.raw.y != null
+                                        return context.raw.y <= 20
                                             ? `${context.dataset.label}: ${context.raw.y}위`
                                             : `${context.dataset.label}: 권외`;
                                     }
