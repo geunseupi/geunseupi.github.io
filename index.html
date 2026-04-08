@@ -118,6 +118,7 @@
     <script>
         let myChart;
         let originalData = [];
+        let originalRankData = [];
         let noDropMode = false;
         let isDarkMode = localStorage.getItem('darkMode') === 'true';
 
@@ -149,6 +150,10 @@
             myChart.options.scales.y.title.color = c.text;
             myChart.options.scales.y.ticks.color = c.text;
             myChart.options.scales.y.grid.color = c.grid;
+            if (myChart.options.scales.yRank) {
+                myChart.options.scales.yRank.title.color = 'rgb(234, 179, 8)';
+                myChart.options.scales.yRank.ticks.color = 'rgb(234, 179, 8)';
+            }
             myChart.options.plugins.legend.labels.color = c.text;
             myChart.update('none');
         }
@@ -161,38 +166,46 @@
          */
         function parseCsvData(csvText) {
             const rows = csvText.trim().split('\n');
-            if (rows.length < 2) return [];
+            if (rows.length < 2) return { data: [], rankData: [] };
 
             const header = rows[0].split(',').map(h => h.trim().toLowerCase());
             const data = [];
-            
-            // 헤더에서 timestamp와 value 인덱스를 찾습니다.
+            const rankData = [];
+
             const timeIndex = header.indexOf('timestamp');
             const valueIndex = header.indexOf('value');
+            const rankIndex = header.indexOf('rank');
 
             if (timeIndex === -1 || valueIndex === -1) {
-                // 임의 데이터 생성 로직을 제거했으므로, 오류를 발생시킵니다.
                 throw new Error("CSV 헤더에 'timestamp' 또는 'value'가 포함되어야 합니다.");
             }
 
             for (let i = 1; i < rows.length; i++) {
                 const cols = rows[i].split(',').map(c => c.trim());
-                
+
                 if (cols.length > Math.max(timeIndex, valueIndex)) {
-                    // X축은 밀리초 숫자로 처리하여 성능을 높입니다.
-                    const timestamp = new Date(cols[timeIndex]); 
+                    const timestamp = new Date(cols[timeIndex]);
                     const value = parseFloat(cols[valueIndex]);
 
-                    // 유효한 데이터만 추가
                     if (!isNaN(timestamp.getTime()) && !isNaN(value)) {
-                        data.push({ x: timestamp.getTime(), y: value });
+                        const t = timestamp.getTime();
+                        data.push({ x: t, y: value });
+
+                        if (rankIndex !== -1 && cols.length > rankIndex) {
+                            const rank = parseInt(cols[rankIndex]);
+                            if (!isNaN(rank) && rank >= 1 && rank <= 20) {
+                                rankData.push({ x: t, y: rank });
+                            } else {
+                                rankData.push({ x: t, y: null });
+                            }
+                        }
                     }
                 }
             }
-            
-            // 데이터를 시간 순으로 정렬합니다. (Chart.js time scale 요구사항)
+
             data.sort((a, b) => a.x - b.x);
-            return data;
+            rankData.sort((a, b) => a.x - b.x);
+            return { data, rankData };
         }
         
         /**
@@ -219,14 +232,17 @@
                 }
                 
                 const csvText = await response.text();
-                const dataPoints = parseCsvData(csvText);
-                
+                const parsed = parseCsvData(csvText);
+                const dataPoints = parsed.data;
+                const rankPoints = parsed.rankData;
+
                 if (dataPoints.length === 0) {
                      throw new Error("CSV 파일을 읽었으나 유효한 데이터 포인트가 없습니다. 헤더와 데이터 형식을 확인하세요.");
                 }
 
                 originalData = dataPoints;
-                updateChart(noDropMode ? buildNoDropData(dataPoints) : dataPoints);
+                originalRankData = rankPoints;
+                updateChart(noDropMode ? buildNoDropData(dataPoints) : dataPoints, rankPoints);
 
                 const latestDataPoint = dataPoints[dataPoints.length - 1];
                 const latestTime = new Date(latestDataPoint.x);
@@ -374,18 +390,21 @@
         /**
          * 차트 인스턴스를 생성하거나 기존 인스턴스의 데이터를 업데이트합니다.
          */
-        function updateChart(dataPoints) {
+        function updateChart(dataPoints, rankPoints) {
             const ctx = document.getElementById('timeSeriesChart').getContext('2d');
-            
+
             // 1. 전체 데이터 범위 계산 (Limits 및 Reset 기준 설정용)
             const fullMinTime = dataPoints.length > 0 ? dataPoints[0].x : undefined;
             const fullMaxTime = dataPoints.length > 0 ? dataPoints[dataPoints.length - 1].x : undefined;
-            
+
+            rankPoints = rankPoints || [];
+
             const data = {
                 datasets: [{
                     label: '근스피',
                     data: dataPoints,
                     parsing: false,
+                    yAxisID: 'y',
                     borderColor: 'rgb(16, 185, 129)',
                     backgroundColor: 'rgba(16, 185, 129, 0.1)',
                     borderWidth: 2,
@@ -393,6 +412,20 @@
                     pointHoverRadius: 5,
                     tension: 0,
                     fill: false
+                }, {
+                    label: '순위',
+                    data: rankPoints,
+                    parsing: false,
+                    yAxisID: 'yRank',
+                    borderColor: 'rgb(234, 179, 8)',
+                    backgroundColor: 'rgba(234, 179, 8, 0.1)',
+                    borderWidth: 2,
+                    pointRadius: 0,
+                    pointHoverRadius: 5,
+                    tension: 0.3,
+                    fill: false,
+                    spanGaps: false,
+                    borderDash: [4, 4]
                 }]
             };
 
@@ -416,6 +449,7 @@
                             grid: { color: c.grid }
                         },
                         y: {
+                            position: 'left',
                             beginAtZero: false,
                             title: { display: false },
                             ticks: {
@@ -423,6 +457,19 @@
                                 callback: v => Math.round(v)
                             },
                             grid: { color: c.grid }
+                        },
+                        yRank: {
+                            position: 'right',
+                            reverse: true,
+                            min: 1,
+                            max: 21,
+                            title: { display: false, text: '검색순위', color: 'rgb(234, 179, 8)' },
+                            ticks: {
+                                color: 'rgb(234, 179, 8)',
+                                stepSize: 1,
+                                callback: v => v <= 20 ? v + '' : '순위 밖'
+                            },
+                            grid: { display: false }
                         }
                     },
                     plugins: {
@@ -432,7 +479,20 @@
                             samples: 500
                         },
                         legend: { display: true, position: 'top', labels: { color: c.text } },
-                        tooltip: { mode: 'index', intersect: false },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            callbacks: {
+                                label: function(context) {
+                                    if (context.dataset.yAxisID === 'yRank') {
+                                        return context.raw.y != null
+                                            ? `${context.dataset.label}: ${context.raw.y}위`
+                                            : `${context.dataset.label}: 권외`;
+                                    }
+                                    return `${context.dataset.label}: ${context.formattedValue}`;
+                                }
+                            }
+                        },
                         zoom: {
                             zoom: {
                                 enabled: true, 
@@ -464,17 +524,13 @@
 
             if (myChart) {
                 // ----------------- 기존 차트 업데이트 (줌 상태 유지) -----------------
-                // 데이터 포인트만 업데이트
                 myChart.data.datasets[0].data = dataPoints;
-                
-                // Limits는 전체 데이터 범위로 확장 (데이터가 추가되었을 경우)
+                if (myChart.data.datasets[1]) myChart.data.datasets[1].data = rankPoints;
+
                 myChart.options.plugins.zoom.limits.x.min = fullMinTime;
                 myChart.options.plugins.zoom.limits.x.max = fullMaxTime;
 
-                // X축 최소/최대값은 건드리지 않고 사용자가 설정한 줌 상태를 유지합니다.
-                
                 myChart.update();
-                // Y축만 현재 보이는 X축 범위에 맞춰 조정
                 autoAdjustYScale({ chart: myChart });
                 
             } else {
@@ -532,6 +588,7 @@
             btn.textContent = noDropMode ? '현실로 돌아가기' : '글삭이 없었더라면?';
             if (myChart && originalData.length > 0) {
                 const newData = noDropMode ? buildNoDropData(originalData) : originalData;
+                if (myChart.data.datasets[1]) myChart.data.datasets[1].data = originalRankData;
                 const oldData = myChart.data.datasets[0].data;
 
                 // 현재 Y축 범위 저장
