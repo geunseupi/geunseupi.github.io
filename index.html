@@ -85,7 +85,10 @@
         </div>
 
         <p class="text-sm text-orange-500 font-medium text-center hidden" id="frozenInfo"></p>
-        <p class="text-sm text-gray-500 dark:text-gray-400 text-center hidden" id="totalDeletedInfo"></p>
+        <div class="flex justify-center gap-4 text-sm text-center">
+            <p class="text-gray-500 dark:text-gray-400 hidden" id="totalDeletedInfo"></p>
+            <p class="text-blue-500 font-medium hidden" id="todayPostsInfo"></p>
+        </div>
         <p class="font-bold text-center hidden" id="dropInfo"></p>
         <p id="statusMessage" class="text-sm text-red-500 font-medium hidden text-center"></p>
 
@@ -288,6 +291,23 @@
                     totalDeletedInfo.classList.remove('hidden');
                 } else {
                     totalDeletedInfo.classList.add('hidden');
+                }
+
+                // 오늘 작성된 게시글 수 계산
+                const todayPostsInfo = document.getElementById('todayPostsInfo');
+                const now = new Date();
+                const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+                const todayPoints = dataPoints.filter(p => p.x >= todayStart);
+                if (todayPoints.length >= 2) {
+                    let todayWritten = 0;
+                    for (let i = 1; i < todayPoints.length; i++) {
+                        const diff = todayPoints[i].y - todayPoints[i - 1].y;
+                        if (diff > 0) todayWritten += diff;
+                    }
+                    todayPostsInfo.textContent = `📝 오늘 작성된 게시글: ${Math.round(todayWritten)}개`;
+                    todayPostsInfo.classList.remove('hidden');
+                } else {
+                    todayPostsInfo.classList.add('hidden');
                 }
 
                 // 최근 급락 구간 감지
@@ -654,7 +674,10 @@
              fetch('https://raw.githubusercontent.com/geunseupi/geunseupi.github.io/main/important.txt')
                  .then(r => r.text())
                  .then(t => console.log(t))
-                 .catch(() => {});
+                 .catch(() => {}).then(() => {
+                     console.log("https://gall.dcinside.com/mgallery/board/lists/?id=verticalsue")
+                     console.log("https://www.vgoso.xyz/")
+                 });
         };
 
     </script>
