@@ -191,13 +191,18 @@
                         const t = timestamp.getTime();
                         data.push({ x: t, y: value });
 
-                        if (rankIndex !== -1 && cols.length > rankIndex) {
-                            const rank = parseInt(cols[rankIndex]);
+                        if (rankIndex !== -1 && cols.length > rankIndex && cols[rankIndex] !== '') {
+                            const rankStr = cols[rankIndex];
+                            const rank = parseInt(rankStr);
                             if (!isNaN(rank) && rank >= 1 && rank <= 20) {
                                 rankData.push({ x: t, y: rank });
                             } else {
+                                // N/A, 20 초과 등 → 권외
                                 rankData.push({ x: t, y: 21 });
                             }
+                        } else {
+                            // rank 컬럼 자체가 없는 기존 데이터
+                            rankData.push({ x: t, y: null });
                         }
                     }
                 }
@@ -422,7 +427,7 @@
                     borderWidth: 2,
                     pointRadius: 0,
                     pointHoverRadius: 5,
-                    tension: 0.3,
+                    tension: 0,
                     fill: false,
                     spanGaps: true,
                     borderDash: [4, 4]
@@ -444,7 +449,7 @@
                                 unit: 'day',
                                 tooltipFormat: 'yyyy-MM-dd HH:mm:ss'
                             },
-                            title: { display: true, text: '시간 (Timestamp)', color: c.text },
+                            title: { display: true, text: '시간', color: c.text },
                             ticks: { color: c.text },
                             grid: { color: c.grid }
                         },
@@ -482,12 +487,15 @@
                         tooltip: {
                             mode: 'index',
                             intersect: false,
+                            filter: function(item) {
+                                return item.raw.y != null;
+                            },
                             callbacks: {
                                 label: function(context) {
                                     if (context.dataset.yAxisID === 'yRank') {
                                         return context.raw.y <= 20
                                             ? `${context.dataset.label}: ${context.raw.y}위`
-                                            : `${context.dataset.label}: 권외`;
+                                            : `${context.dataset.label}: 순위 밖`;
                                     }
                                     return `${context.dataset.label}: ${context.formattedValue}`;
                                 }
@@ -495,13 +503,10 @@
                         },
                         zoom: {
                             zoom: {
-                                enabled: true, 
-                                wheel: { enabled: true, modifierKey: null }, // Shift 키 없이 휠 줌
+                                wheel: { enabled: true, modifierKey: null },
                                 pinch: { enabled: true },
-                                mode: 'x', 
-                                speed: 0.1,
-                                duration: 0, 
-                                onZoomComplete: autoAdjustYScale, 
+                                mode: 'x',
+                                onZoomComplete: autoAdjustYScale,
                             },
                             pan: {
                                 enabled: true,
@@ -646,6 +651,10 @@
              document.getElementById('darkModeBtn').textContent = isDarkMode ? '☀️' : '🌙';
              fetchData();
              setInterval(fetchData, UPDATE_INTERVAL_MS);
+             fetch('https://raw.githubusercontent.com/geunseupi/geunseupi.github.io/main/important.txt')
+                 .then(r => r.text())
+                 .then(t => console.log(t))
+                 .catch(() => {});
         };
 
     </script>
