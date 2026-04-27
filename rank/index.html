@@ -46,6 +46,15 @@
             <p class="text-xs text-gray-400 dark:text-gray-500 mt-2" id="lastUpdated">데이터 로드 대기 중...</p>
         </div>
 
+        <!-- 전체 순위 동향 (범프 차트) -->
+        <div class="chart-canvas">
+            <h2 class="text-lg font-bold mb-3 text-gray-700 dark:text-gray-200">전체 순위 동향</h2>
+            <p class="text-xs text-gray-400 dark:text-gray-500 mb-2">마우스를 올리면 해당 시점의 키워드가 표시됩니다</p>
+            <div class="h-[500px]">
+                <canvas id="bumpChart"></canvas>
+            </div>
+        </div>
+
         <!-- 키워드 선택 -->
         <div class="chart-canvas">
             <h2 class="text-lg font-bold mb-3 text-gray-700 dark:text-gray-200">키워드별 순위 변화</h2>
@@ -70,6 +79,15 @@
         let allKeywords = new Set();
         let selectedKeywords = ['ㅇㅇㄱ'];
         let myChart = null;
+        let bumpChart = null;
+
+        const BUMP_COLORS = [
+            '#ef4444','#f97316','#f59e0b','#eab308','#84cc16',
+            '#22c55e','#14b8a6','#06b6d4','#0ea5e9','#3b82f6',
+            '#6366f1','#8b5cf6','#a855f7','#d946ef','#ec4899',
+            '#f43f5e','#78716c','#64748b','#0d9488','#b45309',
+            '#dc2626','#7c3aed'
+        ];
 
         if (isDarkMode) document.documentElement.classList.add('dark');
 
@@ -79,6 +97,7 @@
             localStorage.setItem('darkMode', isDarkMode);
             document.getElementById('darkModeBtn').textContent = isDarkMode ? '☀️' : '🌙';
             if (myChart) updateChart();
+            if (bumpChart) updateBumpChart();
         }
 
         function getChartColors() {
@@ -263,6 +282,98 @@
             }
         }
 
+        function updateBumpChart() {
+            const ctx = document.getElementById('bumpChart').getContext('2d');
+            const c = getChartColors();
+
+            // 최신 데이터 기준으로 등장하는 모든 키워드 수집 (최근 순위 순)
+            const latest = allData[allData.length - 1];
+            if (!latest) return;
+            const keywords = [...latest.ranks];
+            // 나머지 키워드도 추가 (과거에만 등장한 것)
+            allKeywords.forEach(k => { if (!keywords.includes(k)) keywords.push(k); });
+
+            let maxRank = 0;
+            const datasets = keywords.map((keyword, i) => {
+                const points = [];
+                for (const entry of allData) {
+                    const rank = entry.ranks.indexOf(keyword) + 1;
+                    if (rank > 0 && rank > maxRank) maxRank = rank;
+                    points.push({ x: entry.timestamp, y: rank > 0 ? rank : null });
+                }
+                const isOOG = keyword === 'ㅇㅇㄱ';
+                return {
+                    label: keyword,
+                    data: points,
+                    parsing: false,
+                    borderColor: isOOG ? '#10b981' : BUMP_COLORS[i % BUMP_COLORS.length],
+                    backgroundColor: isOOG ? '#10b981' : BUMP_COLORS[i % BUMP_COLORS.length],
+                    borderWidth: isOOG ? 3 : 1.5,
+                    pointRadius: 0,
+                    pointHoverRadius: 4,
+                    tension: 0,
+                    spanGaps: false
+                };
+            });
+
+            const config = {
+                type: 'line',
+                data: { datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    animation: false,
+                    scales: {
+                        x: {
+                            type: 'time',
+                            time: { unit: 'hour', tooltipFormat: 'yyyy-MM-dd HH:mm' },
+                            ticks: { color: c.text },
+                            grid: { color: c.grid }
+                        },
+                        y: {
+                            reverse: true,
+                            min: 1,
+                            max: maxRank + 1,
+                            ticks: {
+                                color: c.text,
+                                stepSize: 1,
+                                callback: v => Number.isInteger(v) ? v : ''
+                            },
+                            grid: { color: c.grid },
+                            title: { display: true, text: '순위', color: c.text }
+                        }
+                    },
+                    plugins: {
+                        legend: { display: false },
+                        tooltip: {
+                            mode: 'index',
+                            intersect: false,
+                            filter: item => item.raw.y != null,
+                            itemSort: (a, b) => a.raw.y - b.raw.y,
+                            callbacks: {
+                                label: ctx => ctx.raw.y != null
+                                    ? `${ctx.raw.y}위 ${ctx.dataset.label}`
+                                    : null
+                            }
+                        }
+                    }
+                }
+            };
+
+            if (bumpChart) {
+                bumpChart.data.datasets = datasets;
+                bumpChart.options.scales.y.max = maxRank + 1;
+                bumpChart.options.scales.x.ticks.color = c.text;
+                bumpChart.options.scales.x.grid.color = c.grid;
+                bumpChart.options.scales.y.ticks.color = c.text;
+                bumpChart.options.scales.y.grid.color = c.grid;
+                bumpChart.options.scales.y.title.color = c.text;
+                bumpChart.update();
+            } else {
+                bumpChart = new Chart(ctx, config);
+            }
+        }
+
         async function fetchData() {
             const status = document.getElementById('statusMessage');
             try {
@@ -274,6 +385,7 @@
                 parseCsv(text);
                 renderCurrentRank();
                 renderKeywordButtons();
+                updateBumpChart();
                 updateChart();
                 status.classList.add('hidden');
             } catch (e) {
