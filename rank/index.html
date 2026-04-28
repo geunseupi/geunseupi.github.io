@@ -4,7 +4,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>루리웹 인기검색어 순위</title>
+    <title>실검 순위</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
@@ -32,7 +32,7 @@
         <div class="flex justify-center items-center gap-3">
             <a href="../" class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-sm">&larr; 근스피</a>
             <h1 class="text-3xl font-bold text-gray-800 dark:text-gray-100 text-center">
-                루리웹 인기검색어 순위
+                실검 순위
             </h1>
             <button onclick="toggleDarkMode()" id="darkModeBtn" class="text-xl" title="다크모드 토글">🌙</button>
         </div>
@@ -282,6 +282,8 @@
             }
         }
 
+        let bumpHighlightIdx = -1;
+
         function updateBumpChart() {
             const ctx = document.getElementById('bumpChart').getContext('2d');
             const c = getChartColors();
@@ -290,29 +292,29 @@
             const latest = allData[allData.length - 1];
             if (!latest) return;
             const keywords = [...latest.ranks];
-            // 나머지 키워드도 추가 (과거에만 등장한 것)
             allKeywords.forEach(k => { if (!keywords.includes(k)) keywords.push(k); });
 
-            let maxRank = 0;
             const datasets = keywords.map((keyword, i) => {
                 const points = [];
                 for (const entry of allData) {
                     const rank = entry.ranks.indexOf(keyword) + 1;
-                    if (rank > 0 && rank > maxRank) maxRank = rank;
-                    points.push({ x: entry.timestamp, y: rank > 0 ? rank : null });
+                    points.push({ x: entry.timestamp, y: rank > 0 ? rank : 23 });
                 }
                 const isOOG = keyword === 'ㅇㅇㄱ';
+                const isHighlighted = bumpHighlightIdx === i;
+                const dimmed = bumpHighlightIdx >= 0 && !isHighlighted && !isOOG;
                 return {
                     label: keyword,
                     data: points,
                     parsing: false,
-                    borderColor: isOOG ? '#10b981' : BUMP_COLORS[i % BUMP_COLORS.length],
+                    borderColor: isOOG ? '#10b981' : (dimmed ? 'rgba(150,150,150,0.15)' : BUMP_COLORS[i % BUMP_COLORS.length]),
                     backgroundColor: isOOG ? '#10b981' : BUMP_COLORS[i % BUMP_COLORS.length],
-                    borderWidth: isOOG ? 3 : 1.5,
+                    borderWidth: isOOG ? 4 : (isHighlighted ? 3 : 1.5),
                     pointRadius: 0,
                     pointHoverRadius: 4,
                     tension: 0,
-                    spanGaps: false
+                    spanGaps: true,
+                    order: isOOG ? 0 : (isHighlighted ? 1 : 2)
                 };
             });
 
@@ -323,6 +325,14 @@
                     responsive: true,
                     maintainAspectRatio: false,
                     animation: false,
+                    onHover: (event, elements, chart) => {
+                        const nearest = chart.getElementsAtEventForMode(event, 'nearest', { intersect: false }, false);
+                        const newIdx = nearest.length > 0 ? nearest[0].datasetIndex : -1;
+                        if (newIdx !== bumpHighlightIdx) {
+                            bumpHighlightIdx = newIdx;
+                            updateBumpChart();
+                        }
+                    },
                     scales: {
                         x: {
                             type: 'time',
@@ -333,11 +343,11 @@
                         y: {
                             reverse: true,
                             min: 1,
-                            max: maxRank + 1,
+                            max: 23,
                             ticks: {
                                 color: c.text,
                                 stepSize: 1,
-                                callback: v => Number.isInteger(v) ? v : ''
+                                callback: v => v <= 22 ? v : '순위 밖'
                             },
                             grid: { color: c.grid },
                             title: { display: true, text: '순위', color: c.text }
@@ -346,14 +356,12 @@
                     plugins: {
                         legend: { display: false },
                         tooltip: {
-                            mode: 'index',
+                            mode: 'nearest',
                             intersect: false,
-                            filter: item => item.raw.y != null,
-                            itemSort: (a, b) => a.raw.y - b.raw.y,
                             callbacks: {
-                                label: ctx => ctx.raw.y != null
+                                label: ctx => ctx.raw.y <= 22
                                     ? `${ctx.raw.y}위 ${ctx.dataset.label}`
-                                    : null
+                                    : `순위 밖 ${ctx.dataset.label}`
                             }
                         }
                     }
@@ -362,13 +370,12 @@
 
             if (bumpChart) {
                 bumpChart.data.datasets = datasets;
-                bumpChart.options.scales.y.max = maxRank + 1;
                 bumpChart.options.scales.x.ticks.color = c.text;
                 bumpChart.options.scales.x.grid.color = c.grid;
                 bumpChart.options.scales.y.ticks.color = c.text;
                 bumpChart.options.scales.y.grid.color = c.grid;
                 bumpChart.options.scales.y.title.color = c.text;
-                bumpChart.update();
+                bumpChart.update('none');
             } else {
                 bumpChart = new Chart(ctx, config);
             }
@@ -399,6 +406,13 @@
             document.getElementById('darkModeBtn').textContent = isDarkMode ? '☀️' : '🌙';
             fetchData();
             setInterval(fetchData, 5 * 60 * 1000);
+
+            document.getElementById('bumpChart').addEventListener('mouseleave', () => {
+                if (bumpHighlightIdx !== -1) {
+                    bumpHighlightIdx = -1;
+                    updateBumpChart();
+                }
+            });
         };
     </script>
 </body>
