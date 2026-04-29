@@ -6,8 +6,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>실검 순위</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/hammerjs/hammer.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
     <script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-date-fns/dist/chartjs-adapter-date-fns.bundle.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-zoom@2.2.0"></script>
     <style>
         body { font-family: 'Inter', sans-serif; background-color: #f4f7f9; }
         .dark body { background-color: #111827; }
@@ -50,8 +52,11 @@
         <div class="chart-canvas">
             <h2 class="text-lg font-bold mb-3 text-gray-700 dark:text-gray-200">전체 순위 동향</h2>
             <p class="text-xs text-gray-400 dark:text-gray-500 mb-2">마우스를 올리면 해당 시점의 키워드가 표시됩니다</p>
-            <div class="h-[500px]">
+            <div class="h-[500px]" style="touch-action:none;user-select:none;">
                 <canvas id="bumpChart"></canvas>
+            </div>
+            <div class="flex justify-center mt-2">
+                <button onclick="resetBumpZoom()" class="text-xs text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300 underline">줌/패닝 초기화</button>
             </div>
         </div>
 
@@ -194,7 +199,7 @@
                 const points = [];
                 for (const entry of allData) {
                     const rank = entry.ranks.indexOf(keyword) + 1;
-                    points.push({ x: entry.timestamp, y: rank > 0 ? rank : null });
+                    points.push({ x: entry.timestamp, y: rank > 0 ? rank : 23 });
                 }
                 return {
                     label: keyword,
@@ -206,7 +211,7 @@
                     pointRadius: 0,
                     pointHoverRadius: 5,
                     tension: 0,
-                    spanGaps: false
+                    spanGaps: true
                 };
             });
         }
@@ -216,13 +221,7 @@
             const c = getChartColors();
             const datasets = buildDatasets();
 
-            // 보이는 rank의 max 계산
-            let maxRank = 10;
-            for (const ds of datasets) {
-                for (const p of ds.data) {
-                    if (p.y != null && p.y > maxRank) maxRank = p.y;
-                }
-            }
+            const maxRank = 22;
 
             const config = {
                 type: 'line',
@@ -241,11 +240,11 @@
                         y: {
                             reverse: true,
                             min: 1,
-                            max: maxRank + 1,
+                            max: 23,
                             ticks: {
                                 color: c.text,
                                 stepSize: 1,
-                                callback: v => Number.isInteger(v) ? v : ''
+                                callback: v => v <= 22 ? v : '순위 밖'
                             },
                             grid: { color: c.grid },
                             title: { display: true, text: '순위', color: c.text }
@@ -256,9 +255,9 @@
                         tooltip: {
                             mode: 'index',
                             intersect: false,
-                            filter: item => item.raw.y != null,
+                            filter: item => item.raw.y <= 22,
                             callbacks: {
-                                label: ctx => ctx.raw.y != null
+                                label: ctx => ctx.raw.y <= 22
                                     ? `${ctx.dataset.label}: ${ctx.raw.y}위`
                                     : null
                             }
@@ -269,7 +268,6 @@
 
             if (myChart) {
                 myChart.data.datasets = datasets;
-                myChart.options.scales.y.max = maxRank + 1;
                 myChart.options.scales.x.ticks.color = c.text;
                 myChart.options.scales.x.grid.color = c.grid;
                 myChart.options.scales.y.ticks.color = c.text;
@@ -284,6 +282,14 @@
 
         let bumpHighlightIdx = -1;
 
+        const TWELVE_HOURS = 12 * 60 * 60 * 1000;
+
+        function resetBumpZoom() {
+            if (bumpChart && bumpChart.resetZoom) {
+                bumpChart.resetZoom();
+            }
+        }
+
         function updateBumpChart() {
             const ctx = document.getElementById('bumpChart').getContext('2d');
             const c = getChartColors();
@@ -293,6 +299,9 @@
             if (!latest) return;
             const keywords = [...latest.ranks];
             allKeywords.forEach(k => { if (!keywords.includes(k)) keywords.push(k); });
+
+            const fullMinTime = allData[0].timestamp;
+            const fullMaxTime = latest.timestamp;
 
             const datasets = keywords.map((keyword, i) => {
                 const points = [];
@@ -330,13 +339,26 @@
                         const newIdx = nearest.length > 0 ? nearest[0].datasetIndex : -1;
                         if (newIdx !== bumpHighlightIdx) {
                             bumpHighlightIdx = newIdx;
-                            updateBumpChart();
+                            // 데이터셋 스타일만 업데이트 (줌 상태 유지)
+                            const kws = [...allData[allData.length - 1].ranks];
+                            allKeywords.forEach(k => { if (!kws.includes(k)) kws.push(k); });
+                            chart.data.datasets.forEach((ds, j) => {
+                                const isO = kws[j] === 'ㅇㅇㄱ';
+                                const isH = bumpHighlightIdx === j;
+                                const dim = bumpHighlightIdx >= 0 && !isH && !isO;
+                                ds.borderColor = isO ? '#10b981' : (dim ? 'rgba(150,150,150,0.15)' : BUMP_COLORS[j % BUMP_COLORS.length]);
+                                ds.borderWidth = isO ? 4 : (isH ? 3 : 1.5);
+                                ds.order = isO ? 0 : (isH ? 1 : 2);
+                            });
+                            chart.update('none');
                         }
                     },
                     scales: {
                         x: {
                             type: 'time',
                             time: { unit: 'hour', tooltipFormat: 'yyyy-MM-dd HH:mm' },
+                            min: fullMaxTime - TWELVE_HOURS,
+                            max: fullMaxTime,
                             ticks: { color: c.text },
                             grid: { color: c.grid }
                         },
@@ -358,10 +380,24 @@
                         tooltip: {
                             mode: 'nearest',
                             intersect: false,
+                            filter: item => item.raw.y <= 22,
                             callbacks: {
-                                label: ctx => ctx.raw.y <= 22
-                                    ? `${ctx.raw.y}위 ${ctx.dataset.label}`
-                                    : `순위 밖 ${ctx.dataset.label}`
+                                label: ctx => `${ctx.raw.y}위 ${ctx.dataset.label}`
+                            }
+                        },
+                        zoom: {
+                            zoom: {
+                                wheel: { enabled: true },
+                                pinch: { enabled: true },
+                                mode: 'x',
+                            },
+                            pan: {
+                                enabled: true,
+                                mode: 'x',
+                                threshold: 5,
+                            },
+                            limits: {
+                                x: { min: fullMinTime, max: fullMaxTime }
                             }
                         }
                     }
@@ -370,6 +406,8 @@
 
             if (bumpChart) {
                 bumpChart.data.datasets = datasets;
+                bumpChart.options.plugins.zoom.limits.x.min = fullMinTime;
+                bumpChart.options.plugins.zoom.limits.x.max = fullMaxTime;
                 bumpChart.options.scales.x.ticks.color = c.text;
                 bumpChart.options.scales.x.grid.color = c.grid;
                 bumpChart.options.scales.y.ticks.color = c.text;
